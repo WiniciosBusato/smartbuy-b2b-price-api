@@ -1,118 +1,72 @@
-#importações
 import asyncio
+import time
 from typing import List, Optional
-import httpx
-from bs4 import BeautifulSoup
-import json
-from fastapi import FastAPI, Query
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, HttpUrl
 import database
 
-#Pydantic valida os dados que entram e saem da API
+# Força a criação das tabelas corretas toda vez que a API ligar
+database.criar_tabelas()
+
+# Pydantic valida os dados que entram e saem da API
 class PrecoProduto(BaseModel):
-    loja:str
-    titulo:str
-    preco:float
-    link:HttpUrl
-    em_estoque:bool
-    imagem_url:Optional[str] = None
+    loja: str
+    titulo: str
+    preco: float
+    link: HttpUrl
+    em_estoque: bool
+    imagem_url: Optional[str] = None
 
-class RespotaBusca(BaseModel):
-    termo:str
+class RespostaBusca(BaseModel):
+    termo: str
     resultado: List[PrecoProduto]
-    tempo_execucao:float
+    tempo_execucao: float
 
-async def estrair_dados_json_ld(html_content: str, url: str, nome_loja: str) -> Optional[PrecoProduto]:
-    '''
-    Função auxiliar para varrer o HTML em busca  de dados  estruturados (JSON-LD).
-    Isso evita quebras constantes por mudança de layout visual.
-    '''
-    try:
-        soup = BeatifulSoup(html_content, "html.parser")
-        #Procura por scripts do tipo application/ld+json
-        scripts = soup.find_all("script", type="application/ld+json")
 
-        for script in scripts:
-            try:
-                data = json.loads(script.string)
-                # O JSON-LD pode ser um objeto unico ou uma lista de objetos
-                if data.get(deta, dict):
-                    #Procura por esquemas do tipo "Product" dentro de um "@graph"
-                    if data.get("@type") == "Product":
-                        nome = data.get("name"),
-                        offers = data.get("offers", {})
-
-                        #extrai preço e disponibilidade
-                        preco = 0.0
-                        disponivel = False
-
-                        if isinstance(offers, dict):
-                            preco = float(offers.get("price", 0))
-                            dispo_str = offers.get("availability", "")
-                            disponivel = "InStock" in dispo_str or "preOrder" in dispo_str
-                        elif isinstance(offers, list) and len (offers) > 0:
-                            preco = float(offers[0].get("price", 0))
-                            dispo_str = offers[0].get("availability", "")
-                            disponivel = "InStock" in dispo_str
-
-                        return PrecoProduto(
-                            loja=nome_loja,
-                            titulo=nome or "Produto sem nome",
-                            preco=preco,
-                            link=url,
-                            em_estoque=disponivel,
-                            imagem_url=data.get("image")
-                        )
-            except (json.JSONecodeError, TypeError, ValueError):
-                continue
-    except Exception as e:
-        print(f"Erro ao processar JSON-LD para {nome_loja}: {0}")
-    return None
-
-async def buscar_fornecedor_mock(client: httpx.AsyncClient, loja: str, termo: str) -> Optional[PrecoProduto]:
-    '''
-    Simula uma requisição assincrona. Em produção, aqui sera feito o fetch real do HTML
-    ou a chamada da API oficial da loja.
-    '''
-    #Simulando delay de rede variavel (entre 300ms e 900ms)
-    await asyncio.sleep(0.3 + (asyncio.get_event_loop().time() % 0.6))
-
-    #Criando dados ficticios para simular a resposta de busca do forcenedor
-    precos_mock = {
-        "Amazon": 34.90,
-        "Mercado Livre": 29.90,
-        "MAgazine Luiza": 32.50 
-    }
-
-    preco = precos_mock.get(loja, 30.0)
-    #Adiciona uma pequena variação baseada no tamanho do termo buscado para não ficar estático
-    preco += len(termo) *0.1
-
+# ==========================================
+# 1. MOTOR SIMULADO (MOCK)
+# ==========================================
+async def buscar_preco_simulado(termo: str) -> Optional[PrecoProduto]:
+    """
+    Função que simula uma busca na internet. 
+    Excelente para portfólios e entrevistas, pois nunca quebra por causa de anti-bots.
+    """
+    # Simulamos o atraso de rede (1.5 segundos para parecer real)
+    await asyncio.sleep(1.5)
+    
+    print(f"🤖 Gerando dados simulados profissionais para: {termo}")
+    
+    # Devolvemos um produto de demonstração com cara de profissional
     return PrecoProduto(
-        loja=loja,
-        titulo=f"{termo.title()} - oferta{loja}",
-        preco=round(preco, 2),
-        link=f"https://www.{loja.lower().replace(' ','')}.com.br/s?q={termo}",
+        loja="Fornecedor Premium B2B",
+        titulo=f"{termo.capitalize()} - Lote Atacado (Caixa com 12)",
+        preco=149.90,
+        link="https://exemplo.com/produto-simulado",
         em_estoque=True,
-        imagem_url="https://placehold.co/150x150/efefef/333333?text=Produto"
+        imagem_url="https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=300&auto=format&fit=crop&q=60"
     )
 
-def salvar_no_cache(termo: str, resultados: str):
+
+# ==========================================
+# 2. CÉREBRO (BANCO DE DADOS / CACHE)
+# ==========================================
+def salvar_no_cache(termo: str, resultados: List[PrecoProduto]):
     '''Salva a busca e os produtos encontrados no banco de dados.'''
     conn = database.conectar()
     cursor = conn.cursor()
 
-    #1- Salva o termo na tabela Historico_Buscas
-    cursor.execute("INSERT INTO Historico_Buscas (termo_busca) VALUES (?)", (termo.lower(),))
-    busca_id = cursor.lastrowid #ega o ID gerado para essa busca
+    # Salva o termo na tabela Historico_Buscas
+    cursor.execute("INSERT OR REPLACE INTO Historico_Buscas (termo_busca) VALUES (?)", (termo.lower(),))
+    busca_id = cursor.lastrowid
 
-    #2- Salva cada produto na tabela Resultados_Temporarios atrelado ao ID da busca
+    # Salva cada produto na tabela Resultados_Temporarios atrelado ao ID da busca
     for item in resultados:
         cursor.execute('''
-        INSERT INTO Resultado_Temporarios
+        INSERT INTO Resultados_Temporarios
         (busca_id, loja, titulo, preco, link, em_estoque, imagem_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?,)
-        ''', (busca_id, item.loja, item.titulo, item.preso, str(item.link), item.em_estoque, item.imagem_url))
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (busca_id, item.loja, item.titulo, item.preco, str(item.link), item.em_estoque, item.imagem_url))
     
     conn.commit()
     conn.close()
@@ -122,22 +76,18 @@ def buscar_no_cache(termo: str) -> Optional[List[PrecoProduto]]:
     conn = database.conectar()
     cursor = conn.cursor()
 
-    # tenta achar o ID da busca usando o termo
     cursor.execute("SELECT id FROM Historico_Buscas WHERE termo_busca = ?", (termo.lower(),))
     busca = cursor.fetchone()
 
-    #Se a busca existir, os prdutos serão pegos
     if busca:
         busca_id = busca[0]
         cursor.execute('''
         SELECT loja, titulo, preco, link, em_estoque, imagem_url
         FROM Resultados_Temporarios WHERE busca_id = ?
-        ''', (busca_id))
+        ''', (busca_id,))
 
         linhas = cursor.fetchall()
-
-        #reconstroi os resultados no formato que a API exige
-        resultados_salvos =[]
+        resultados_salvos = []
         for linha in linhas:
             produto = PrecoProduto(
                 loja=linha[0],
@@ -152,47 +102,42 @@ def buscar_no_cache(termo: str) -> Optional[List[PrecoProduto]]:
         conn.close()
         return resultados_salvos
 
-    #se não achar nada, retorna vazio
     conn.close()
     return None
 
+
+# ==========================================
+# 3. APLICAÇÃO FASTAPI (ROTAS)
+# ==========================================
 app = FastAPI(
     title="SmartBuy B2B Price API",
-    description="Backend de meta-busca assíncrona de preços em tempo real para múltiplos fornecedores.",
+    description="Backend de meta-busca de preços (Versão Mock/Demonstração).",
     version="1.0.0"
 )
 
-@app.get("/api/busca", response_model=RespotaBusca)
-async def realizar_busca(q: str = Query(..., min_length=2, description="Termo de pesquisa")):
-    #inicia o cronometro
-    tempo_inicial = asyncio.get_event_loop().time()
-
-    #1- Tenta buscar no DB primeiro
-    resultados_cacheados = buscar_no_cache(q)
-
-    if resultados_cacheados:
-        print("Retornando dados ultra-rápidos do Banco de Dados")
-        tempo_execucao = asyncio.get.get_event_loop().time() - tempo_inicial
-        return RespotaBusca(
-            termo=q,
-            resultado=resultados_cacheados,
-            tempo_execucao=tempo_execucao
-        )
-    #2- Se não tem no DB, faz a busca "real" na NET
-    print("Buscando dados novos na internet...")
-    fornecedores = ["Amazon","Mercado livre","Magazine Luiza"]
-
-    async with httpx.AsyncClient() as client:
-        #prepara todas as tarefas para rodar ao mesmo tempo
-        tarefas = [buscar_fornecedor_mock(client, loja, q) for loja in fornecedores]
-        #Dispara todas de uma vez
-        resultados = await asyncio.gather(*tarefas)
+@app.get("/api/busca", response_model=RespostaBusca)
+async def realizar_busca(q: str):
+    inicio = time.time()
     
-    #limpa a lista removendo valores vazios (caso algum site tenha falhado)
-
-#FIM DA MODIFICAÇÃO
-@app.get("/")
-def home():
-    return {"status": "Online", "message": "SmartBuy API rodando com sucesso. Acesso /docs para testar as rotas de busca!"}
-
+    # Passo A: Tenta buscar no Banco de Dados
+    resultados_cacheados = buscar_no_cache(q)
+    if resultados_cacheados:
+        tempo = time.time() - inicio
+        print("🚀 Retornando dados ultra-rápidos do Banco de Dados!")
+        return RespostaBusca(termo=q, resultado=resultados_cacheados, tempo_execucao=tempo)
         
+    # Passo B: Se não tem no banco, usa nosso motor simulado
+    print("🔍 Buscando dados no fornecedor parceiro...")
+    resultado_simulado = await buscar_preco_simulado(q)
+    
+    # Passo C: Valida e salva no cache
+    resultados_validos = [resultado_simulado] if resultado_simulado else []
+    if resultados_validos:
+        salvar_no_cache(q, resultados_validos)
+    
+    tempo = time.time() - inicio
+    return RespostaBusca(termo=q, resultado=resultados_validos, tempo_execucao=tempo)
+
+@app.get("/")
+async def pagina_inicial():
+    return FileResponse("index.html")

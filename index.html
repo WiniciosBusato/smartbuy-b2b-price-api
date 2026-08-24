@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consultor de Preços B2B</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #2c3e50; }
+        .search-box { display: flex; gap: 10px; margin-bottom: 30px; }
+        input[type="text"] { flex: 1; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 5px; }
+        button { padding: 12px 20px; font-size: 16px; background-color: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer; transition: 0.3s; }
+        button:hover { background-color: #2980b9; }
+        .produto-card { display: flex; align-items: center; border: 1px solid #eee; padding: 15px; margin-bottom: 15px; border-radius: 8px; }
+        .produto-card img { max-width: 100px; border-radius: 5px; margin-right: 20px; }
+        .produto-info { flex: 1; }
+        .produto-info h3 { margin: 0 0 10px 0; color: #333; font-size: 18px; }
+        .preco { font-size: 24px; font-weight: bold; color: #27ae60; margin: 0; }
+        .loja { color: #7f8c8d; font-size: 14px; text-transform: uppercase; }
+        .link-compra { padding: 8px 15px; background-color: #2ecc71; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; }
+        .link-compra:hover { background-color: #27ae60; }
+        #loading { text-align: center; display: none; font-style: italic; color: #7f8c8d; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Consultor de Preços B2B</h1>
+    
+    <div class="search-box">
+        <input type="text" id="inputBusca" placeholder="Ex: Café em grão 1kg, Filtro de aspirador...">
+        <button onclick="fazerBusca()">Buscar Melhor Preço</button>
+    </div>
+
+    <div id="loading">Consultando fornecedores... Isso pode levar alguns segundos.</div>
+    
+    <div id="areaResultados"></div>
+</div>
+
+<script>
+    async function fazerBusca() {
+        const termo = document.getElementById('inputBusca').value;
+        const areaResultados = document.getElementById('areaResultados');
+        const loading = document.getElementById('loading');
+
+        if(termo.length < 2) {
+            alert("Digite pelo menos 2 caracteres!");
+            return;
+        }
+
+        // Limpa a tela e mostra o "Carregando..."
+        areaResultados.innerHTML = "";
+        loading.style.display = "block";
+
+        try {
+            // A MÁGICA: O Frontend chamando o seu Motor Python!
+            const resposta = await fetch(`/api/busca?q=${termo}`);
+            const dados = await resposta.json();
+
+            loading.style.display = "none"; // Esconde o "Carregando..."
+
+            // Desenha um "card" HTML para cada produto que o Python encontrou
+            dados.resultado.forEach(produto => {
+                const card = `
+                    <div class="produto-card">
+                        <img src="${produto.imagem_url}" alt="Imagem do produto">
+                        <div class="produto-info">
+                            <p class="loja">${produto.loja}</p>
+                            <h3>${produto.titulo}</h3>
+                            <p class="preco">R$ ${produto.preco.toFixed(2)}</p>
+                        </div>
+                        <a href="${produto.link}" target="_blank" class="link-compra">Acessar Loja</a>
+                    </div>
+                `;
+                areaResultados.innerHTML += card;
+            });
+
+        } catch (erro) {
+            loading.style.display = "none";
+            areaResultados.innerHTML = `<p style="color:red;">Erro ao buscar dados. O servidor Python está ligado?</p>`;
+        }
+    }
+</script>
+
+</body>
+</html>

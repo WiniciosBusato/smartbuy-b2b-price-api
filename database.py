@@ -24,7 +24,7 @@ def criar_tabelas():
 
     #Tabela 2: Guarda os produtos encontrados para aquela busca
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS historico_Buscas (
+    CREATE TABLE IF NOT EXISTS Resultados_Temporarios (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         busca_id INTEGER NOT NULL,
         loja TEXT NOT NULL,
